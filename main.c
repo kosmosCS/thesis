@@ -5,9 +5,12 @@
  * Created on 2 Октябрь 2014 г., 11:54
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-
+//#include <stdio.h>
+//#include <stdlib.h>
+#include <xc.h>
+#include "init.h"
+//#include "uart.h"
+//#include <stdint.h>
 
 // FBS
 #pragma config BWRP = WRPROTECT_OFF     // Boot Segment Write Protect (Boot Segment may be written)
@@ -45,14 +48,166 @@
 #pragma config PWMPIN = ON              // Motor Control PWM Module Pin Mode bit (PWM module pins controlled by PORT register at device Reset)
 
 // FICD
-#pragma config ICS = PGD1               // Comm Channel Select (Communicate on PGC1/EMUC1 and PGD1/EMUD1)
+#pragma config ICS = PGD3               // Comm Channel Select (Communicate on PGC1/EMUC1 and PGD1/EMUD1)
 #pragma config JTAGEN = OFF             // JTAG Port Enable (JTAG is Disabled)
 
 /*
  * 
  */
-int main() {
 
+#include "mb.h"
+#include "mbport.h"
+
+/* ----------------------- Defines ------------------------------------------*/
+#define REG_INPUT_START 1000
+#define REG_INPUT_NREGS 4
+
+/* ----------------------- Static variables ---------------------------------*/
+static USHORT   usRegInputStart = REG_INPUT_START;
+static USHORT   usRegInputBuf[REG_INPUT_NREGS];
+
+//
+///*************************************************************************
+// * Processor-specific peripheral libraries are optional for XC32 porting C32
+// *************************************************************************/
+//OPTIONAL("libmchp_peripheral.a")
+//OPTIONAL("libmchp_peripheral_32MX460F512L.a")
+//
+#define REG_HOLDING_START 0
+#define REG_HOLDING_NREGS 15
+
+static USHORT   usRegHoldingStart = REG_HOLDING_START;
+static USHORT   usRegHoldingBuf[REG_HOLDING_NREGS];
+
+#define	EXIT_SUCCESS	0
+#define	EXIT_FAILURE	1
+
+
+int main() {
+//    const UCHAR     ucSlaveID[] = { 0xAA, 0xBB, 0xCC };
+    eMBErrorCode eStatus;
+    TRISBbits.TRISB8 = 0;
+    LATBbits.LATB8 = 0;
+    usRegHoldingBuf[0] = 44;
+    usRegHoldingBuf[1] = 55;
+    usRegHoldingBuf[2] = 66;
+    usRegHoldingBuf[3] = 77;
+
+    eStatus = eMBInit(MB_RTU, 0x01, 2, 256000, MB_PAR_NONE);
+   // eStatus = eMBSetSlaveID( 0x34, TRUE, ucSlaveID, 3 );
+    
+    eStatus = eMBEnable(  );
+    U2STAbits.UTXEN = 0;
+    U2STAbits.UTXEN = 1;
+    LATBbits.LATB8 = 0;
+    while(1)
+    {
+//        char ReceivedChar;
+        ( void )eMBPoll(  );
+
+        /* Here we simply count the number of poll cycles. */
+        usRegInputBuf[0]++;
+
+     }
     return (EXIT_SUCCESS);
 }
+
+void __attribute__((__interrupt__, no_auto_psv)) _U2RXInterrupt(void)
+{
+    /* Interrupt Service Routine code goes here */
+    pxMBFrameCBByteReceived(  );
+    IFS1bits.U2RXIF = 0;
+}
+
+void __attribute__((__interrupt__, no_auto_psv)) _U2TXInterrupt(void)
+{
+    IFS1bits.U2TXIF = 0;
+    pxMBFrameCBTransmitterEmpty(  );
+}
+
+
+eMBErrorCode
+eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
+{
+    eMBErrorCode    eStatus = MB_ENOERR;
+    int             iRegIndex;
+
+    if( ( usAddress >= REG_INPUT_START )
+        && ( usAddress + usNRegs <= REG_INPUT_START + REG_INPUT_NREGS ) )
+    {
+        iRegIndex = ( int )( usAddress - usRegInputStart );
+        while( usNRegs > 0 )
+        {
+            *pucRegBuffer++ =
+                ( unsigned char )( usRegInputBuf[iRegIndex] >> 8 );
+            *pucRegBuffer++ =
+                ( unsigned char )( usRegInputBuf[iRegIndex] & 0xFF );
+            iRegIndex++;
+            usNRegs--;
+        }
+    }
+    else
+    {
+        eStatus = MB_ENOREG;
+    }
+
+    return eStatus;
+}
+
+eMBErrorCode
+ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs,
+                           eMBRegisterMode eMode )
+  {
+  eMBErrorCode    eStatus = MB_ENOERR;
+     int             iRegIndex;
+
+     if( ( usAddress >= REG_HOLDING_START ) &&
+         ( usAddress + usNRegs <= REG_HOLDING_START + REG_HOLDING_NREGS ) )
+     {
+         iRegIndex = ( int )( usAddress - usRegHoldingStart );
+         switch ( eMode )
+         {
+             /* Pass current register values to the protocol stack. */
+         case MB_REG_READ:
+             while( usNRegs > 0 )
+             {
+                 *pucRegBuffer++ = ( UCHAR ) ( usRegHoldingBuf[iRegIndex] >> 8 );
+                 *pucRegBuffer++ = ( UCHAR ) ( usRegHoldingBuf[iRegIndex] & 0xFF );
+                 iRegIndex++;
+                 usNRegs--;
+             }
+             break;
+
+             /* Update current register values with new values from the
+              * protocol stack. */
+         case MB_REG_WRITE:
+             while( usNRegs > 0 )
+             {
+                 usRegHoldingBuf[iRegIndex] = *pucRegBuffer++ << 8;
+                 usRegHoldingBuf[iRegIndex] |= *pucRegBuffer++;
+                 iRegIndex++;
+                 usNRegs--;
+             }
+         }
+     }
+     else
+     {
+         eStatus = MB_ENOREG;
+     }
+     return eStatus;
+  }
+
+eMBErrorCode
+eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils,
+               eMBRegisterMode eMode )
+{
+    return MB_ENOREG;
+}
+
+eMBErrorCode
+eMBRegDiscreteCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNDiscrete )
+{
+    return MB_ENOREG;
+}
+
 
