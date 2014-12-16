@@ -30,7 +30,7 @@
 
 /* ----------------------- System includes ----------------------------------*/
 #include "stdlib.h"
-#include "string.h"
+//#include "string.h"
 
 /* ----------------------- Platform includes --------------------------------*/
 #include "port.h"
@@ -65,8 +65,9 @@ eMBSetSlaveID( UCHAR ucSlaveID, BOOL xIsRunning,
         ucMBSlaveID[usMBSlaveIDLen++] = ( UCHAR )( xIsRunning ? 0xFF : 0x00 );
         if( usAdditionalLen > 0 )
         {
-            memcpy( &ucMBSlaveID[usMBSlaveIDLen], pucAdditional,
-                    ( size_t )usAdditionalLen );
+            //my memory control
+//            memcpy( &ucMBSlaveID[usMBSlaveIDLen], pucAdditional,
+//                    ( size_t )usAdditionalLen );
             usMBSlaveIDLen += usAdditionalLen;
         }
     }
@@ -80,7 +81,8 @@ eMBSetSlaveID( UCHAR ucSlaveID, BOOL xIsRunning,
 eMBException
 eMBFuncReportSlaveID( UCHAR * pucFrame, USHORT * usLen )
 {
-    memcpy( &pucFrame[MB_PDU_DATA_OFF], &ucMBSlaveID[0], ( size_t )usMBSlaveIDLen );
+    //my memory control
+//    memcpy( &pucFrame[MB_PDU_DATA_OFF], &ucMBSlaveID[0], ( size_t )usMBSlaveIDLen );
     *usLen = ( USHORT )( MB_PDU_DATA_OFF + usMBSlaveIDLen );
     return MB_EX_NONE;
 }

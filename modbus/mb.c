@@ -30,8 +30,6 @@
 
 /* ----------------------- System includes ----------------------------------*/
 #include "stdlib.h"
-#include "string.h"
-
 /* ----------------------- Platform includes --------------------------------*/
 #include "port.h"
 
@@ -384,7 +382,7 @@ eMBPoll( void )
                     break;
                 }
             }
-
+            
             /* If the request was not sent to the broadcast address we
              * return a reply. */
             if( ucRcvAddress != MB_ADDRESS_BROADCAST )

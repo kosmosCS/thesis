@@ -27,10 +27,10 @@
  *
  * File: $Id: mbrtu.c,v 1.18 2007/09/12 10:15:56 wolti Exp $
  */
-
+#include <xc.h>
 /* ----------------------- System includes ----------------------------------*/
 #include "stdlib.h"
-#include "string.h"
+//#include "string.h"
 
 /* ----------------------- Platform includes --------------------------------*/
 #include "port.h"
@@ -42,7 +42,6 @@
 
 #include "mbcrc.h"
 #include "mbport.h"
-
 /* ----------------------- Defines ------------------------------------------*/
 #define MB_SER_PDU_SIZE_MIN     4       /*!< Minimum size of a Modbus RTU frame. */
 #define MB_SER_PDU_SIZE_MAX     256     /*!< Maximum size of a Modbus RTU frame. */
@@ -82,7 +81,9 @@ eMBRTUInit( UCHAR ucSlaveAddress, UCHAR ucPort, ULONG ulBaudRate, eMBParity ePar
 {
     eMBErrorCode    eStatus = MB_ENOERR;
     ULONG           usTimerT35_50us;
-
+    BOOL bitParity;
+    ULONG dVByte;
+    ULONG usTimerT35_50usInSeconds;
     ( void )ucSlaveAddress;
     ENTER_CRITICAL_SECTION(  );
 
@@ -96,9 +97,10 @@ eMBRTUInit( UCHAR ucSlaveAddress, UCHAR ucPort, ULONG ulBaudRate, eMBParity ePar
         /* If baudrate > 19200 then we should use the fixed timer values
          * t35 = 1750us. Otherwise t35 must be 3.5 times the character time.
          */
-        if( ulBaudRate > 19200 )
+        if( ulBaudRate >= 19200 )
         {
-            usTimerT35_50us = 35;       /* 1800us. */
+//            usTimerT35_50us = 35;       /* 1800us. */
+            usTimerT35_50us = 109;
         }
         else
         {
@@ -110,7 +112,14 @@ eMBRTUInit( UCHAR ucSlaveAddress, UCHAR ucPort, ULONG ulBaudRate, eMBParity ePar
              * The reload for t3.5 is 1.5 times this value and similary
              * for t3.5.
              */
-            usTimerT35_50us = ( 7UL * 220000UL ) / ( 2UL * ulBaudRate );
+            if (eParity == MB_PAR_NONE) bitParity = 0;
+            else bitParity = 1;
+            dVByte = (ulBaudRate * 8) /(8*(8 + 1 + bitParity + 1));
+            
+            usTimerT35_50usInSeconds = 35000/dVByte;
+            usTimerT35_50us = ((Fcy * usTimerT35_50usInSeconds)/ 256)/10000;
+
+            
         }
         if( xMBPortTimersInit( ( USHORT ) usTimerT35_50us ) != TRUE )
         {
@@ -155,7 +164,7 @@ eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
 
     ENTER_CRITICAL_SECTION(  );
     assert( usRcvBufferPos < MB_SER_PDU_SIZE_MAX );
-
+    
     /* Length and CRC check */
     if( ( usRcvBufferPos >= MB_SER_PDU_SIZE_MIN )
         && ( usMBCRC16( ( UCHAR * ) ucRTUBuf, usRcvBufferPos ) == 0 ) )
@@ -164,11 +173,10 @@ eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
          * and the decision if a frame is used is done there.
          */
         *pucRcvAddress = ucRTUBuf[MB_SER_PDU_ADDR_OFF];
-
         /* Total length of Modbus-PDU is Modbus-Serial-Line-PDU minus
          * size of address field and CRC checksum.
          */
-        *pusLength = ( USHORT )( usRcvBufferPos - MB_SER_PDU_PDU_OFF - MB_SER_PDU_SIZE_CRC );
+        *pusLength = ( USHORT )( usRcvBufferPos - MB_SER_PDU_PDU_OFF - MB_SER_PDU_SIZE_CRC);
 
         /* Return the start of the Modbus PDU to the caller. */
         *pucFrame = ( UCHAR * ) & ucRTUBuf[MB_SER_PDU_PDU_OFF];
@@ -178,7 +186,7 @@ eMBRTUReceive( UCHAR * pucRcvAddress, UCHAR ** pucFrame, USHORT * pusLength )
     {
         eStatus = MB_EIO;
     }
-
+    
     EXIT_CRITICAL_SECTION(  );
     return eStatus;
 }
@@ -188,7 +196,6 @@ eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
 {
     eMBErrorCode    eStatus = MB_ENOERR;
     USHORT          usCRC16;
-
     ENTER_CRITICAL_SECTION(  );
 
     /* Check if the receiver is still in idle state. If not we where to
@@ -209,16 +216,20 @@ eMBRTUSend( UCHAR ucSlaveAddress, const UCHAR * pucFrame, USHORT usLength )
         usCRC16 = usMBCRC16( ( UCHAR * ) pucSndBufferCur, usSndBufferCount );
         ucRTUBuf[usSndBufferCount++] = ( UCHAR )( usCRC16 & 0xFF );
         ucRTUBuf[usSndBufferCount++] = ( UCHAR )( usCRC16 >> 8 );
-
+        
         /* Activate the transmitter. */
         eSndState = STATE_TX_XMIT;
         vMBPortSerialEnable( FALSE, TRUE );
+        
     }
     else
     {
         eStatus = MB_EIO;
     }
     EXIT_CRITICAL_SECTION(  );
+//    pxMBFrameCBTransmitterEmpty(  );
+    
+
     return eStatus;
 }
 
@@ -286,7 +297,6 @@ BOOL
 xMBRTUTransmitFSM( void )
 {
     BOOL            xNeedPoll = FALSE;
-
     assert( eRcvState == STATE_RX_IDLE );
 
     switch ( eSndState )
@@ -296,6 +306,7 @@ xMBRTUTransmitFSM( void )
     case STATE_TX_IDLE:
         /* enable receiver/disable transmitter. */
         vMBPortSerialEnable( TRUE, FALSE );
+//        i=0;
         break;
 
     case STATE_TX_XMIT:
@@ -324,7 +335,7 @@ BOOL
 xMBRTUTimerT35Expired( void )
 {
     BOOL            xNeedPoll = FALSE;
-
+    
     switch ( eRcvState )
     {
         /* Timer t35 expired. Startup phase is finished. */
